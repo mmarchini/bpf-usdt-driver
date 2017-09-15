@@ -1,9 +1,11 @@
+#include <linux/uaccess.h>
 #include <linux/init.h>
 #include <linux/module.h>
 #include <linux/types.h>
 #include <linux/kdev_t.h>
 #include <linux/cdev.h>
 #include <linux/fs.h>
+#include <linux/slab.h>		/* kmalloc() */
 #include "bpf_usdt_driver.h"
 
 MODULE_LICENSE("GPL");
@@ -15,7 +17,7 @@ int dev_count = 1;
 
 struct cdev cdev_;
 
-BpfUsdtProbe probesList[MAX_PROBES];
+BpfUsdtProbe *probesList[MAX_PROBES];
 
 int bpf_usdt_open(struct inode *inode, struct file *filp);
 int bpf_usdt_release(struct inode *inode, struct file *filp);
@@ -28,9 +30,63 @@ static struct file_operations bpf_usdt_proc_ops = {
   .unlocked_ioctl = bpf_usdt_ioctl
 };
 
+static long bpf_usdt_ioctl_add(void *ptr) {
+  int i, result=0;
+  BpfUsdtProbe *probe;
+  for(i=0; i < MAX_PROBES; i++) {
+    if(probesList[i] == NULL) {
+      probe = kmalloc(sizeof(BpfUsdtProbe), GFP_KERNEL);
+      copy_from_user(probe, ptr, sizeof(BpfUsdtProbe));
+      probesList[i] = probe;
+      printk(KERN_ALERT "Probe added: %s %d %s %s 0x%x\n", probe->module, probe->pid, probe->provider, probe->probe, probe->addr);
+      result = i;
+      break;
+    }
+  }
+  return result;
+}
+
+static long bpf_usdt_ioctl_readall(void *ptr) {
+  BpfUsdtProbe *availableProbes;
+  int i, x, count=0;
+
+  for(i=0; i < MAX_PROBES; i++) {
+    if(probesList[i] != NULL) {
+      count++;
+    }
+  }
+
+  availableProbes = kmalloc(sizeof(BpfUsdtProbe) * count, GFP_KERNEL);
+
+  x = 0;
+  for(i=0; i < MAX_PROBES; i++) {
+    if(probesList[i] != NULL) {
+      memcpy(&(availableProbes[x]), probesList[i], sizeof(BpfUsdtProbe));
+      x++;
+    }
+  }
+
+  copy_to_user(ptr, availableProbes, sizeof(BpfUsdtProbe) * count);
+
+  kfree(availableProbes);
+  return count;
+}
+
 static long bpf_usdt_ioctl(struct file *file, unsigned int cmd, unsigned long arg) {
-  // printk(KERN_ALERT "god have mercy\n");
-  return 0;
+  long result=0;
+  switch(cmd) {
+    case BPF_USDT_ADD:
+      result = bpf_usdt_ioctl_add((void *) arg);
+      break;
+    case BPF_USDT_DELETE:
+      break;
+    case BPF_USDT_READALL:
+      result = bpf_usdt_ioctl_readall((void *)arg);
+      break;
+    default:
+      return -ENOTTY;
+  }
+  return result;
 }
 
 
@@ -43,8 +99,14 @@ int bpf_usdt_release(struct inode *inode, struct file *filp) {
 }
 
 static int __init bpf_usdt_init(void) {
+  int i;
   int result;
   dev_t dev=0;
+
+  // Create clear stateon
+  for(i=0; i < MAX_PROBES; i++) {
+    probesList[i] = NULL;
+  }
 
   result = alloc_chrdev_region(&dev, dev_minor, dev_count, "bpf_usdt");
   if(result != 0) {
@@ -63,11 +125,20 @@ static int __init bpf_usdt_init(void) {
   }
 
   printk(KERN_ALERT "Hello, USDT: %d %d\n", dev_major, dev_minor);
-return 0;
+  return 0;
 }
 
 static void bpf_usdt_exit(void) {
+  int i;
+  cdev_del(&cdev_);
   unregister_chrdev_region(MKDEV(dev_major, dev_minor), dev_count);
+  // Create clear state
+  for(i=0; i < MAX_PROBES; i++) {
+    if(probesList[i] != NULL) {
+      kfree(probesList[i]);
+      probesList[i] = NULL;
+    }
+  }
 
   printk(KERN_ALERT "Goodbye, eBPF: %d %d\n", dev_major, dev_minor);
 }
