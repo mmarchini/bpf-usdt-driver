@@ -6,7 +6,7 @@
 
 
 #define MAX_PROBES 10
-#define STR_LENGTH 100
+#define STR_LENGTH 256
 
 typedef struct BpfUsdtProbe_ {
   char module[STR_LENGTH];

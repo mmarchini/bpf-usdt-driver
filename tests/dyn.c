@@ -1,3 +1,4 @@
+#define _GNU_SOURCE
 #include <fcntl.h>
 #include <stdio.h>
 #include <malloc.h>
@@ -7,16 +8,11 @@
 #include <sys/ioctl.h>
 #include <sys/mman.h>
 #include <stdlib.h>
-#define _GNU_SOURCE
 #include <errno.h>
 #include <sys/sdt.h>
 
-
 #include "../src/bpf_usdt_driver.h"
 #include "dyn.h"
-
-extern char *program_invocation_name;
-extern char *program_invocation_short_name;
 
 #define DEVICE_FILE_NAME "/dev/bpf_usdt"
 #define FUNC_SIZE 16
@@ -29,30 +25,33 @@ typedef struct USDTProbe_ {
 
 // TODO ASM implementation like libusdt?
 void _bpf_usdt_fire() {
-
+  DTRACE_PROBE(on, fire);
 }
 
 int this_probe_is_on_fire(USDTProbe *usdt) {
   int fd;
-  char tmp[23] = "/tmp/bpfusdtprobeXXXXXX";
+  char tmp[25] = "/tmp/BpfUSDTProbe-XXXXXX";
 
   if ((fd = mkstemp(tmp)) < 0)
           return -1;
-  if (unlink(tmp) < 0)
-          return -1;
+  // if (unlink(tmp) < 0)
+  //         return -1;
   if (write(fd, "\0", FUNC_SIZE) < FUNC_SIZE)
           return -1;
 
-  usdt->fire = (void (*)())mmap(NULL, FUNC_SIZE,
+  usdt->fire = (void (*)())mmap(0, FUNC_SIZE,
                                           PROT_READ | PROT_WRITE | PROT_EXEC,
-                                          MAP_PRIVATE, fd, 0);
+                                          MAP_SHARED, fd, 0);
+                                          // MAP_PRIVATE, fd, 0);
 
   if (usdt->fire == NULL)
     return -1;
 
   memcpy((void *)usdt->fire, (const void *)_bpf_usdt_fire, FUNC_SIZE);
-
-  mprotect((void *)usdt->fire, FUNC_SIZE, PROT_READ | PROT_EXEC);
+  strcpy(usdt->probe->module, tmp);
+  printf("Fire: %lx\n", (unsigned long) usdt->fire);
+  printf("%s\n", usdt->probe->module);
+  // mprotect((void *)usdt->fire, FUNC_SIZE, PROT_READ | PROT_EXEC);
 
   return 0;
 }
@@ -60,29 +59,34 @@ int this_probe_is_on_fire(USDTProbe *usdt) {
 USDTProbe *register_probe(char *provider, char *probe_name) {
   int file_desc, ret_val;
   USDTProbe *usdt = malloc(sizeof(USDTProbe));
+  usdt->probe =  malloc(sizeof(BpfUsdtProbe));
 
   if(this_probe_is_on_fire(usdt) < 0) {
+    free(usdt->probe);
     free(usdt);
     return NULL;
   }
 
-  usdt->probe =  malloc(sizeof(BpfUsdtProbe));
 
   usdt->probe->pid = getpid();
-  usdt->probe->addr = (unsigned long) usdt->fire;
-  strcpy(usdt->probe->module, program_invocation_short_name);
+  printf("PID: %d\n", usdt->probe->pid);
+  usdt->probe->addr = 0x00;
+  printf("addr: %lx\n", usdt->probe->addr);
   strcpy(usdt->probe->provider, provider);
   strcpy(usdt->probe->probe, probe_name);
+  printf("provider: %s\n", usdt->probe->provider);
+  printf("probe: %s\n", usdt->probe->probe);
 
   file_desc = open(DEVICE_FILE_NAME, 0);
   ret_val = ioctl(file_desc, BPF_USDT_ADD, usdt->probe);
 
   if(ret_val < 0) {
-    printf("Fudeu\n");
+    printf("Something is not right\n");
+    free(usdt->probe);
+    free(usdt);
+      return NULL;
   } else {
     usdt->index = ret_val;
-    printf("OMG\n");
-    ;
   }
 
   return usdt;
@@ -94,7 +98,6 @@ int fire_probe(USDTProbe *usdt) {
 }
 
 int main() {
-  DTRACE_PROBE(opa, treta);
   int which = 0;
   USDTProbe *probe1 = register_probe("mainer", "lorem");
   USDTProbe *probe2 = register_probe("mainer", "ipsun");
