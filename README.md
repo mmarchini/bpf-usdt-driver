@@ -19,8 +19,7 @@ Now you need to build bcc (dependencies are already installed):
 cd /bpf-usdt-driver/bcc;
 mkdir build;
 cd build;
-cmake .. -DCMAKE_INSTALL_PREFIX=/usr
-
+cmake .. -DCMAKE_INSTALL_PREFIX=/usr;
 make
 sudo make install
 ```
