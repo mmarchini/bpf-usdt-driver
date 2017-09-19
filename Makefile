@@ -15,10 +15,8 @@ bin-reader:
 
 bin-dyn:
 	gcc -c tests/dyn.c -o build/dyn.o
-	# gcc -arch x86_64 -o build/dyn-x86_64.o -c tests/dyn-x86_64.s
-	# gcc -o build/dyn-x86_64.o -c tests/dyn-x86_64.s
-	# gcc build/dyn-x86_64.o build/dyn.o -o dyn
-	gcc build/dyn.o -o dyn
+	gcc -o build/dyn-x86_64.o -c tests/dyn-x86_64.s
+	gcc build/dyn-x86_64.o build/dyn.o -o dyn
 
 insmod:
 	@sudo insmod src/bpf_usdt_driver.ko

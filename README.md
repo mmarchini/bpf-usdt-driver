@@ -52,6 +52,17 @@ Now you can see all probes using:
 /usr/share/bcc/tools/tplist -p $(pgrep dyn)
 ```
 
+To instrument mainer:lorem with a one-liner:
+
+```bash
+export PFILE=$(/usr/share/bcc/tools/tplist -p $(pgrep dyn) | grep mainer:lorem -a | awk '{ printf($1) }') && sudo /usr/share/bcc/tools/trace -p $(pgrep dyn) "u:${PFILE}:mainer:lorem
+```
+
 ## TODO
 
-* Make it work with bcc/trace.py
+* ~~Make it work with bcc/trace.py~~
+* NodeJS lib example
+
+## Known bugs
+
+* Killing bcc/trace will cause a Segmentation fault on `./dyn`
